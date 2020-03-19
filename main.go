@@ -41,7 +41,7 @@ var (
 
 	executable = flag.String("exec", "", "Executable")
 	topicName  = flag.String("topic", "", "Topic name")
-	gcpProject = flag.String("gcpProject", os.Getenv("gcpProject"), "GCP Project ID")
+	gcpProject = flag.String("gcpProject", os.Getenv("GCP_PROJECT"), "GCP Project ID")
 	verbose    = flag.Bool("verbose", false, "Verbose")
 )
 
@@ -52,6 +52,7 @@ func init() {
 }
 
 func main() {
+	log.Fatal(*gcpProject)
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	c := make(chan os.Signal, 1)
