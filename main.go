@@ -52,7 +52,6 @@ func init() {
 }
 
 func main() {
-	log.Fatal(*gcpProject)
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	c := make(chan os.Signal, 1)
