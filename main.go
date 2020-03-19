@@ -41,6 +41,7 @@ var (
 
 	executable = flag.String("exec", "", "Executable")
 	topicName  = flag.String("topic", "", "Topic name")
+	gcpProject = flag.String("gcpProject", os.Getenv("gcpProject"), "GCP Project ID")
 	verbose    = flag.Bool("verbose", false, "Verbose")
 )
 
@@ -61,7 +62,7 @@ func main() {
 		cancel()
 	}()
 
-	client, err := pubsub.NewClient(ctx, "nbcu-res-aieng-dev-reporting")
+	client, err := pubsub.NewClient(ctx, *gcpProject)
 	if err != nil {
 		log.Fatal(err)
 	}
