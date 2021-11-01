@@ -105,6 +105,7 @@ func main() {
 			select {
 			case msg := <-cm:
 				if *verbose {
+					fmt.Println("Received message")
 					fmt.Println(string(msg.Data))
 				}
 				command := strings.Split(*executable, " ")
@@ -123,9 +124,12 @@ func main() {
 				}
 
 				if *verbose {
-					fmt.Println("Ack'ing message")
+					fmt.Println("Acking message")
 				}
 				msg.Ack()
+				if *verbose {
+					fmt.Println("Acked message")
+				}
 			case <-ctx.Done():
 				return
 			}
