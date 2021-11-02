@@ -98,7 +98,7 @@ func main() {
 		logrus.Fatalf("Topic %s doesn't exist", *topicName)
 	}
 
-	subscriptionName := "jc-test-sub"
+	subscriptionName := *topicName + "-consumer"
 	sub := client.Subscription(subscriptionName)
 	exists, err = sub.Exists(cctx)
 	if err != nil {
