@@ -18,15 +18,15 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"os/signal"
 	"strings"
 	"sync"
+	"time"
 
 	"cloud.google.com/go/pubsub"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -39,120 +39,130 @@ var (
 	// token is used to verify push requests.
 	// token = mustGetenv("PUBSUB_VERIFICATION_TOKEN")
 
-	executable = flag.String("exec", "", "Executable")
-	topicName  = flag.String("topic", "", "Topic name")
-	gcpProject = flag.String("gcpProject", os.Getenv("GCP_PROJECT"), "GCP Project ID")
-	verbose    = flag.Bool("verbose", false, "Verbose")
+	executable  = flag.String("exec", "", "Executable")
+	topicName   = flag.String("topic", "", "Topic name")
+	ackDeadline = flag.Int("ackDeadline", 10, "Acknowledgement deadline in seconds")
+	gcpProject  = flag.String("gcpProject", os.Getenv("GCP_PROJECT"), "GCP Project ID")
+	verbose     = flag.Bool("verbose", false, "Verbose")
 )
-
-const maxMessages = 10
 
 func init() {
 	flag.Parse()
+
+	formatter := &logrus.JSONFormatter{
+		TimestampFormat: time.RFC3339Nano,
+		FieldMap: logrus.FieldMap{
+			logrus.FieldKeyTime: "logtime",
+		},
+	}
+
+	if *verbose {
+		logrus.SetLevel(logrus.DebugLevel)
+	} else {
+		logrus.SetLevel(logrus.InfoLevel)
+	}
+	logrus.SetFormatter(formatter)
+
+	// Output to stdout instead of the default stderr
+	logrus.SetOutput(os.Stdout)
 }
 
 func main() {
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
+	cctx, cancel := context.WithCancel(context.Background())
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, os.Kill)
 
 	go func() {
 		<-c
+		logrus.Info("Caught signal")
 		cancel()
 	}()
 
-	client, err := pubsub.NewClient(ctx, *gcpProject)
+	client, err := pubsub.NewClient(cctx, *gcpProject)
 	if err != nil {
-		log.Fatal(err)
+		logrus.Fatal(err)
 	}
-	fmt.Println("Connected")
-
-	topic = client.Topic(*topicName)
-
-	fmt.Println("Got topic")
-	// Create the topic if it doesn't exist.
-	exists, err := topic.Exists(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if !exists {
-		log.Printf("Topic %v doesn't exist - creating it", *topicName)
-		_, err = client.CreateTopic(ctx, *topicName)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	subscriptionName := *topicName + "-consumer"
-	sub := client.Subscription(subscriptionName)
-
-	if exists, _ := sub.Exists(ctx); !exists {
-		sub, err = client.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{
-			Topic: topic,
-		})
-
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	// Create a channel to handle messages to as they come in.
-	cm := make(chan *pubsub.Message)
-	// Handle individual messages in a goroutine.
-	go func() {
-		for {
-			select {
-			case msg := <-cm:
-				if *verbose {
-					fmt.Println("Received message")
-					fmt.Println(string(msg.Data))
-				}
-				command := strings.Split(*executable, " ")
-
-				cmd := exec.Command(command[0], command[1:len(command)]...)
-				cmd.Stdin = strings.NewReader(string(msg.Data))
-				if *verbose {
-					fmt.Println("Running command")
-				}
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				cmd.Run()
-
-				if *verbose {
-					fmt.Println("Ran command")
-				}
-
-				if *verbose {
-					fmt.Println("Acking message")
-				}
-				msg.Ack()
-				if *verbose {
-					fmt.Println("Acked message")
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
+	defer func() {
+		client.Close()
+		logrus.Info("Closing connection")
 	}()
 
-	// Receive blocks until the context is cancelled or an error occurs.
-	fmt.Println("Listening")
+	logrus.Info("Connected")
 
-	err = sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-		cm <- msg
+	topic = client.Topic(*topicName)
+	exists, err := topic.Exists(cctx)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	if !exists {
+		logrus.Fatalf("Topic %s doesn't exist", *topicName)
+	}
+
+	subscriptionName := "jc-test-sub"
+	sub := client.Subscription(subscriptionName)
+	exists, err = sub.Exists(cctx)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	// Create the subscription if it doesn't exist
+	if !exists {
+		logrus.Infof("Creating subscription %s", subscriptionName)
+		sub, err = client.CreateSubscription(cctx, subscriptionName, pubsub.SubscriptionConfig{
+			Topic:       topic,
+			AckDeadline: time.Duration(*ackDeadline) * time.Second,
+		})
+		if err != nil {
+			logrus.Fatal(err)
+		}
+		logrus.Info("Created subscription")
+	} else {
+		logrus.Infof("Subscription %s already exists", subscriptionName)
+	}
+
+	var mu sync.Mutex
+
+	logrus.Info("Waiting for messages")
+	// Receive blocks until the context is cancelled or an error occurs.
+	err = sub.Receive(cctx, func(ctx context.Context, msg *pubsub.Message) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if *verbose {
+			logrus.Info("Received message")
+			logrus.Info(string(msg.Data))
+		}
+		command := strings.Split(*executable, " ")
+
+		cmd := exec.Command(command[0], command[1:]...)
+		cmd.Stdin = strings.NewReader(string(msg.Data))
+		if *verbose {
+			logrus.Info("Running command")
+		}
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Run()
+
+		if *verbose {
+			logrus.Info("Ran command")
+		}
+
+		if *verbose {
+			logrus.Info("Acking message")
+		}
+		msg.Ack()
+		if *verbose {
+			logrus.Info("Acked message")
+		}
 	})
 	if err != nil {
-		fmt.Println(err.Error())
-		return
+		logrus.Fatal(err)
 	}
-	close(cm)
 }
 
 func mustGetenv(k string) string {
 	v := os.Getenv(k)
 	if v == "" {
-		log.Fatalf("%s environment variable not set.", k)
+		logrus.Fatalf("%s environment variable not set.", k)
 	}
 	return v
 }
