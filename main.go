@@ -23,6 +23,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"cloud.google.com/go/pubsub"
@@ -72,11 +73,11 @@ func init() {
 func main() {
 	cctx, cancel := context.WithCancel(context.Background())
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		<-c
-		logrus.Info("Caught signal")
+		sig := <-c
+		logrus.Infof("Caught signal: %v", sig)
 		cancel()
 	}()
 
