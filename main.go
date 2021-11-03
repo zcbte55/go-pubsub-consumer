@@ -39,11 +39,13 @@ var (
 	// token is used to verify push requests.
 	// token = mustGetenv("PUBSUB_VERIFICATION_TOKEN")
 
-	executable  = flag.String("exec", "", "Executable")
-	topicName   = flag.String("topic", "", "Topic name")
-	ackDeadline = flag.Int("ackDeadline", 10, "Acknowledgement deadline in seconds")
-	gcpProject  = flag.String("gcpProject", os.Getenv("GCP_PROJECT"), "GCP Project ID")
-	verbose     = flag.Bool("verbose", false, "Verbose")
+	executable             = flag.String("exec", "", "Executable")
+	topicName              = flag.String("topic", "", "Topic name")
+	ackDeadline            = flag.Int("ackDeadline", 10, "Acknowledgement deadline in seconds")
+	gcpProject             = flag.String("gcpProject", os.Getenv("GCP_PROJECT"), "GCP Project ID")
+	synchronous            = flag.Bool("synchronous", false, "Enable synchronous mode in subscriber receive settings")
+	maxOutstandingMessages = flag.Int("maxOutstandingMessages", 0, "Set MaxOutstandingMessages in subscriber receive settings")
+	verbose                = flag.Bool("verbose", false, "Verbose")
 )
 
 func init() {
@@ -118,6 +120,10 @@ func main() {
 	} else {
 		logrus.Infof("Subscription %s already exists", subscriptionName)
 	}
+
+	// https://pkg.go.dev/cloud.google.com/go/pubsub#ReceiveSettings
+	sub.ReceiveSettings.Synchronous = *synchronous
+	sub.ReceiveSettings.MaxOutstandingMessages = *maxOutstandingMessages
 
 	var mu sync.Mutex
 
