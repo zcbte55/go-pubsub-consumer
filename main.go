@@ -55,7 +55,9 @@ func init() {
 	formatter := &logrus.JSONFormatter{
 		TimestampFormat: time.RFC3339Nano,
 		FieldMap: logrus.FieldMap{
-			logrus.FieldKeyTime: "logtime",
+			logrus.FieldKeyMsg:   "message",
+			logrus.FieldKeyLevel: "severity",
+			logrus.FieldKeyTime:  "timestamp",
 		},
 	}
 
@@ -68,6 +70,11 @@ func init() {
 
 	// Output to stdout instead of the default stderr
 	logrus.SetOutput(os.Stdout)
+}
+
+func timeTrack(start time.Time, name string) {
+	elapsed := time.Since(start)
+	logrus.Infof("%s took %s", name, elapsed)
 }
 
 func main() {
@@ -135,30 +142,58 @@ func main() {
 		defer mu.Unlock()
 
 		if *verbose {
-			logrus.Info("Received message")
-			logrus.Info(string(msg.Data))
+			logrus.WithFields(logrus.Fields{
+				"message_id":        msg.ID,
+				"publish_time_unix": msg.PublishTime.Unix(),
+				"publish_time":      msg.PublishTime.Format("2006-01-02 15:04:05"),
+			}).Info("Received message")
+			logrus.WithFields(logrus.Fields{
+				"message_id":        msg.ID,
+				"publish_time_unix": msg.PublishTime.Unix(),
+				"publish_time":      msg.PublishTime.Format("2006-01-02 15:04:05"),
+			}).Info(string(msg.Data))
 		}
 		command := strings.Split(*executable, " ")
 
 		cmd := exec.Command(command[0], command[1:]...)
 		cmd.Stdin = strings.NewReader(string(msg.Data))
 		if *verbose {
-			logrus.Info("Running command")
+			logrus.WithFields(logrus.Fields{
+				"message_id":        msg.ID,
+				"publish_time_unix": msg.PublishTime.Unix(),
+				"publish_time":      msg.PublishTime.Format("2006-01-02 15:04:05"),
+			}).Info("Running command")
 		}
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+
+		start := time.Now()
 		cmd.Run()
+		elapsed := time.Since(start)
 
 		if *verbose {
-			logrus.Info("Ran command")
+			logrus.WithFields(logrus.Fields{
+				"message_id":        msg.ID,
+				"publish_time_unix": msg.PublishTime.Unix(),
+				"publish_time":      msg.PublishTime.Format("2006-01-02 15:04:05"),
+				"command_duration":  elapsed.Seconds(),
+			}).Info("Ran command")
 		}
 
 		if *verbose {
-			logrus.Info("Acking message")
+			logrus.WithFields(logrus.Fields{
+				"message_id":        msg.ID,
+				"publish_time_unix": msg.PublishTime.Unix(),
+				"publish_time":      msg.PublishTime.Format("2006-01-02 15:04:05"),
+			}).Info("Acking message")
 		}
 		msg.Ack()
 		if *verbose {
-			logrus.Info("Acked message")
+			logrus.WithFields(logrus.Fields{
+				"message_id":        msg.ID,
+				"publish_time_unix": msg.PublishTime.Unix(),
+				"publish_time":      msg.PublishTime.Format("2006-01-02 15:04:05"),
+			}).Info("Acked message")
 		}
 	})
 	if err != nil {
